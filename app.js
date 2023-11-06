@@ -2,7 +2,9 @@ import 'dotenv/config';
 import express from "express";
 import bodyParser from "body-parser";
 import pg from "pg";
-import md5 from "md5";
+import bcrypt from "bcrypt";
+
+const saltRounds = 10;
 
 const db = new pg.Client({
     user: process.env.PG_USER,
@@ -31,29 +33,41 @@ app.get("/register", (req, res) => {
 app.get("/logout", (req, res) => {
     res.render("home.ejs");
 })
-app.post("/register", async (req, res) => {
-    const newUser = {
-        email: req.body.username,
-        password: md5(req.body.password)
-    };
-    try {
-        await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [newUser.email, newUser.password]);
-        res.render("secrets.ejs");
-    } catch (err) {
-        console.log(err);
-    }
+app.post("/register", (req, res) => {
 
+    bcrypt.hash(req.body.password, parseInt(process.env.SALT_ROUNDS),  async function(err, hash) {
+        // Store hash in your password DB.
+        try {
+            await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [req.body.username, hash]);
+            res.render("secrets.ejs");
+        } catch (err) {
+            console.log(err);
+            res.render("register.ejs");
+        }
+        if (err) {
+            console.log(err);
+            res.render("register.ejs");
+        }
+    });
+    
 })
 app.post("/login", async (req, res) => {
     const username = req.body.username;
-    const password = md5(req.body.password); // hashing implemented using md5
     
     try {
         let result = await db.query("SELECT * FROM users WHERE email = $1", [username]);
         let data = result.rows;
 
-        if (data.length > 0 && data[0]["password"] === password) {
-            res.render("secrets.ejs");
+        // if user exist;
+        if (data.length > 0) {
+            // Implementing -- bcrypt -- to check the password(hash)
+           const match =  await bcrypt.compare(req.body.password, data[0]['password']);
+           // If the password entered is correct.
+           if (match) {
+            res.render("secrets.ejs")
+           } else {
+            throw new Error("Wrong password!")
+           }
         } else {
             throw new Error("User does not exist!");
         }
