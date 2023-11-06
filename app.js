@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from "express";
 import bodyParser from "body-parser";
 import pg from "pg";
+import md5 from "md5";
 
 const db = new pg.Client({
     user: process.env.PG_USER,
@@ -33,7 +34,7 @@ app.get("/logout", (req, res) => {
 app.post("/register", async (req, res) => {
     const newUser = {
         email: req.body.username,
-        password: req.body.password
+        password: md5(req.body.password)
     };
     try {
         await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [newUser.email, newUser.password]);
@@ -45,7 +46,7 @@ app.post("/register", async (req, res) => {
 })
 app.post("/login", async (req, res) => {
     const username = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password); // hashing implemented using md5
     
     try {
         let result = await db.query("SELECT * FROM users WHERE email = $1", [username]);
