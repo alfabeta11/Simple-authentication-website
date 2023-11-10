@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import session from "express-session";
 import passport from "passport";
 import LocalStrategy from "passport-local";
+import GoogleStrategy from "passport-google-oauth20";
 
 const db = new pg.Client({
   user: process.env.PG_USER,
@@ -30,22 +31,23 @@ app.use(
   })
 );
 
-// initialize passport
+// initialize our passport
 app.use(passport.initialize());
 app.use(passport.session());
-// app.use(passport.authenticate("session"));
 
-// Defining a strategy;
+// Defining a local strategy;
 passport.use(
   new LocalStrategy(async function verify(username, password, cb) {
     try {
-      const result = await db.query("SELECT * FROM users WHERE email = $1", [
+      // Checking if user exist in db
+      const result = await db.query("SELECT * FROM users WHERE username = $1", [
         username,
       ]);
       const user = result.rows[0];
       if (!user) {
         return cb(err);
       }
+      // If user exist, check if password matches
       const match = await bcrypt.compare(password, user["password"]);
       if (!match) {
         return cb((null, false, { message: "Incorrect password" }));
@@ -57,7 +59,7 @@ passport.use(
     }
   })
 );
-
+// Serializer
 passport.serializeUser(function (user, cb) {
   process.nextTick(function () {
     return cb(null, {
@@ -67,25 +69,57 @@ passport.serializeUser(function (user, cb) {
     });
   });
 });
-
+// Deserializer
 passport.deserializeUser(function (user, cb) {
   process.nextTick(function () {
     return cb(null, user);
   });
 });
+// Google authentication strategy
+passport.use(new GoogleStrategy({
+  clientID: process.env.OAUTH_ID,
+  clientSecret: process.env.OAUTH_SECRET,
+  callbackURL: "http://localhost:3000/oauth/google/secrets"
+},  async function(a, b, profile, cb) {
+  let user = {};
+  const result = await db.query("SELECT * FROM users WHERE username = $1",[profile.id]);
+  let data = result.rows;
+  if (!data) {
+    try {
+      let addUser = await db.query("INSERT INTO users (username) VALUES ($1) RETURNING * ", [profile.id]);
+      let newUser = addUser.rows[0];
+      user = newUser;
+    } catch(err) {
+      console.log("Could not add user.");
+      cb(null, err);
+    }
+  } else {
+    user = data[0];
+  }
+  cb(null, user);
+}));
 
+// homepage
 app.get("/", (req, res) => {
   res.render("home.ejs");
 });
-
+// sign-in with google
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile"] }));
+// page to redirect after google sign-in
+app.get('/oauth/google/secrets', passport.authenticate('google', {
+  failureRedirect: '/login'
+}), (req, res) => {
+  res.redirect("/secrets")
+});
+// login page
 app.get("/login", (req, res) => {
   res.render("login.ejs");
 });
-
+// register page
 app.get("/register", (req, res) => {
   res.render("register.ejs");
 });
-
+// register request
 app.post("/register", (req, res) => {
   bcrypt.hash(
     req.body.password,
@@ -93,7 +127,7 @@ app.post("/register", (req, res) => {
     async function (err, hash) {
       // Store hash in your password DB.
       try {
-        await db.query("INSERT INTO users (email, password) VALUES ($1, $2)", [
+        await db.query("INSERT INTO users (username, password) VALUES ($1, $2)", [
           req.body.username,
           hash,
         ]);
@@ -112,7 +146,7 @@ app.post("/register", (req, res) => {
     }
   );
 });
-
+// the secret page to access if user registered/signed-in
 app.get("/secrets", (req, res) => {
   // If user is authenticated, render secrets.ejs
   if (req.isAuthenticated()) {
@@ -122,7 +156,7 @@ app.get("/secrets", (req, res) => {
     res.redirect("/login");
   }
 });
-
+// login request
 app.post("/login", (req, res) => {
   const newUser = {
     username: req.body.username,
@@ -135,7 +169,7 @@ app.post("/login", (req, res) => {
     return res.redirect("/secrets");
   });
 });
-
+// logout from session
 app.get("/logout", (req, res, next) => {
   req.logout(function (err) {
     if (err) {
