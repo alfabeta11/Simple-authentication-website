@@ -1,4 +1,4 @@
-# My secret
+# Secret
 This repo is inspired from Angela Yu's course on Full Stack Web Development (Authentication & Security).
 ## In this site the following were used:
 * Bcrypt to encrypt password
